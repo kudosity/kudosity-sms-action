@@ -1,0 +1,51 @@
+name: Self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    # Only run for trusted contexts where sandbox secrets are available.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Skip if sandbox secrets are unset
+        id: gate
+        env:
+          API_KEY_SET: ${{ secrets.KUDOSITY_SANDBOX_API_KEY != '' }}
+          RECIPIENT_SET: ${{ secrets.KUDOSITY_SANDBOX_RECIPIENT != '' }}
+          SENDER_SET: ${{ secrets.KUDOSITY_SANDBOX_SENDER != '' }}
+        run: |
+          if [ "$API_KEY_SET" = "true" ] && [ "$RECIPIENT_SET" = "true" ] && [ "$SENDER_SET" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Sandbox secrets missing. Set KUDOSITY_SANDBOX_API_KEY, KUDOSITY_SANDBOX_RECIPIENT, and KUDOSITY_SANDBOX_SENDER repo secrets to enable the live self-test."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send self-test SMS
+        if: steps.gate.outputs.ready == 'true'
+        id: send
+        uses: ./
+        with:
+          api-key: ${{ secrets.KUDOSITY_SANDBOX_API_KEY }}
+          to: ${{ secrets.KUDOSITY_SANDBOX_RECIPIENT }}
+          from: ${{ secrets.KUDOSITY_SANDBOX_SENDER }}
+          message: "kudosity-sms-action self-test (${{ github.sha }})"
+          message-ref: "selftest-${{ github.run_id }}"
+
+      - name: Report
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          echo "Self-test passed."
+          echo "message-id: ${{ steps.send.outputs.message-id }}"
+          echo "status:     ${{ steps.send.outputs.status }}"

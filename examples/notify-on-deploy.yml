@@ -1,0 +1,25 @@
+# Example: send an SMS when a deploy job finishes.
+# Copy this into .github/workflows/ in your own repo and adjust as needed.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Deploy
+        run: ./scripts/deploy.sh
+
+      - name: Notify by SMS
+        uses: kudosity/kudosity-sms-action@v1
+        with:
+          api-key: ${{ secrets.KUDOSITY_API_KEY }}
+          to: ${{ secrets.ONCALL_PHONE }}
+          from: '61481074185'
+          message: "Deploy ${{ github.sha }} of ${{ github.repository }} shipped to prod."

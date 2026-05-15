@@ -1,0 +1,94 @@
+name: 'Kudosity SMS'
+description: 'Send an SMS via Kudosity from a GitHub Actions workflow'
+author: 'Kudosity'
+branding:
+  icon: 'message-circle'
+  color: 'blue'
+
+inputs:
+  api-key:
+    description: 'Kudosity API key (Developers → API Settings). Store this as a repository secret and pass via `secrets.KUDOSITY_API_KEY`.'
+    required: true
+  to:
+    description: 'Recipient phone number (local or E.164 international format, same country as the sender).'
+    required: true
+  from:
+    description: 'Sender number assigned to your Kudosity account, or an alphanumeric sender ID (max 11 chars).'
+    required: true
+  message:
+    description: 'SMS body text. Use `[opt-out-link]` if opt-out is required.'
+    required: true
+  message-ref:
+    description: 'Optional reference (max 500 chars) returned in webhooks for correlation.'
+    required: false
+    default: ''
+  track-links:
+    description: 'Set to "true" to shorten and track links in the message body.'
+    required: false
+    default: 'false'
+
+outputs:
+  message-id:
+    description: 'Kudosity message ID returned by the API.'
+    value: ${{ steps.send.outputs.message-id }}
+  status:
+    description: 'Kudosity message status (e.g. queued, delivered).'
+    value: ${{ steps.send.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: send
+      shell: bash
+      env:
+        KUDOSITY_API_KEY: ${{ inputs.api-key }}
+        SMS_TO: ${{ inputs.to }}
+        SMS_FROM: ${{ inputs.from }}
+        SMS_MESSAGE: ${{ inputs.message }}
+        SMS_MESSAGE_REF: ${{ inputs.message-ref }}
+        SMS_TRACK_LINKS: ${{ inputs.track-links }}
+      run: |
+        set -euo pipefail
+
+        # Build JSON safely via jq to avoid shell-quoting / injection issues.
+        payload=$(jq -nc \
+          --arg message "$SMS_MESSAGE" \
+          --arg sender "$SMS_FROM" \
+          --arg recipient "$SMS_TO" \
+          --arg message_ref "$SMS_MESSAGE_REF" \
+          --argjson track_links "$([ "$SMS_TRACK_LINKS" = "true" ] && echo true || echo false)" \
+          '{message: $message, sender: $sender, recipient: $recipient}
+           + (if $message_ref != "" then {message_ref: $message_ref} else {} end)
+           + (if $track_links then {track_links: true} else {} end)')
+
+        # Send, capturing body and HTTP status separately.
+        response=$(mktemp)
+        http_code=$(curl -sS -o "$response" -w '%{http_code}' \
+          -X POST 'https://api.transmitmessage.com/v2/sms' \
+          -H "x-api-key: ${KUDOSITY_API_KEY}" \
+          -H 'Content-Type: application/json' \
+          -H 'User-Agent: kudosity-sms-action/1.0.0' \
+          --data-binary "$payload")
+
+        if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+          echo "::error::Kudosity API returned HTTP $http_code"
+          echo "::group::Response body"
+          cat "$response"
+          echo
+          echo "::endgroup::"
+          exit 1
+        fi
+
+        message_id=$(jq -r '.id // empty' < "$response")
+        status=$(jq -r '.status // empty' < "$response")
+
+        if [ -z "$message_id" ]; then
+          echo "::error::Kudosity API returned HTTP $http_code but no message id in the response"
+          cat "$response"
+          exit 1
+        fi
+
+        echo "message-id=$message_id" >> "$GITHUB_OUTPUT"
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+
+        echo "Sent. message-id=$message_id status=$status"

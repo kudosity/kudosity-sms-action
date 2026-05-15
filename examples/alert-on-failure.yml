@@ -1,0 +1,29 @@
+# Example: alert on-call by SMS when a critical job fails.
+# Copy into .github/workflows/ in your own repo.
+
+name: Critical job
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # every 15 minutes
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run critical check
+        id: check
+        run: ./scripts/critical-check.sh
+
+      - name: Alert on failure
+        if: failure()
+        uses: kudosity/kudosity-sms-action@v1
+        with:
+          api-key: ${{ secrets.KUDOSITY_API_KEY }}
+          to: ${{ secrets.ONCALL_PHONE }}
+          from: '61481074185'
+          message: "ALERT: ${{ github.workflow }} failed in ${{ github.repository }} (run ${{ github.run_id }}). See ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          message-ref: "alert-${{ github.run_id }}"
