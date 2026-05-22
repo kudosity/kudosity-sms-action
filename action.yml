@@ -47,8 +47,20 @@ runs:
         SMS_MESSAGE: ${{ inputs.message }}
         SMS_MESSAGE_REF: ${{ inputs.message-ref }}
         SMS_TRACK_LINKS: ${{ inputs.track-links }}
+        GITHUB_ACTION_REF: ${{ github.action_ref }}
       run: |
         set -euo pipefail
+
+        command -v jq >/dev/null 2>&1 || {
+          echo "::error::jq is required but not installed on this runner. Use ubuntu-latest, macos-latest, or install jq on your custom runner."
+          exit 1
+        }
+
+        trap 'rm -f "${response:-}"' EXIT
+
+        # Mask the API key so the runner's log scrubber redacts it
+        # even if the Kudosity API ever echoes it back in an error body.
+        echo "::add-mask::${KUDOSITY_API_KEY}"
 
         # Build JSON safely via jq to avoid shell-quoting / injection issues.
         payload=$(jq -nc \
@@ -64,10 +76,12 @@ runs:
         # Send, capturing body and HTTP status separately.
         response=$(mktemp)
         http_code=$(curl -sS -o "$response" -w '%{http_code}' \
+          --connect-timeout 10 \
+          --max-time 30 \
           -X POST 'https://api.transmitmessage.com/v2/sms' \
           -H "x-api-key: ${KUDOSITY_API_KEY}" \
           -H 'Content-Type: application/json' \
-          -H 'User-Agent: kudosity-sms-action/1.0.0' \
+          -H "User-Agent: kudosity-sms-action/${GITHUB_ACTION_REF:-unknown}" \
           --data-binary "$payload")
 
         if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
@@ -79,8 +93,10 @@ runs:
           exit 1
         fi
 
-        message_id=$(jq -r '.id // empty' < "$response")
-        status=$(jq -r '.status // empty' < "$response")
+        # Strip newlines so a malicious API response can't inject extra
+        # GITHUB_OUTPUT entries (e.g. an id of "real-id\nfoo=bar").
+        message_id=$(jq -r '.id // empty' < "$response" | tr -d '\n\r')
+        status=$(jq -r '.status // empty' < "$response" | tr -d '\n\r')
 
         if [ -z "$message_id" ]; then
           echo "::error::Kudosity API returned HTTP $http_code but no message id in the response"

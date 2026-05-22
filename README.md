@@ -4,6 +4,10 @@ Send an SMS from a GitHub Actions workflow using the [Kudosity](https://kudosity
 
 Drop this into any workflow as a step — `on: push`, `on: schedule`, on deploy success, on a failed build — and it will deliver an SMS via Kudosity's V2 API.
 
+## Runner requirements
+
+Requires a Linux or macOS runner with `jq` and `bash` available — the default `ubuntu-latest` and `macos-latest` runners qualify out of the box. Windows runners are not supported.
+
 ## Usage
 
 ```yaml
@@ -11,7 +15,7 @@ Drop this into any workflow as a step — `on: push`, `on: schedule`, on deploy 
   with:
     api-key: ${{ secrets.KUDOSITY_API_KEY }}
     to: '0491570156'
-    from: '61481074185'
+    from: ${{ secrets.KUDOSITY_SENDER }}
     message: "Deploy ${{ github.sha }} shipped"
 ```
 
@@ -38,7 +42,8 @@ Drop this into any workflow as a step — `on: push`, `on: schedule`, on deploy 
 1. **Sign up** at [kudosity.com/signup](https://kudosity.com/signup) (free).
 2. **Get an API key** — Developers → API Settings.
 3. **Add it as a repo secret** — your GitHub repo → Settings → Secrets and variables → Actions → New repository secret. Name: `KUDOSITY_API_KEY`. Value: your API key.
-4. **(Optional) Store the on-call number** — add another secret `ONCALL_PHONE` (or whatever name suits you) and reference it as `${{ secrets.ONCALL_PHONE }}` in the workflow `to:` input. This keeps phone numbers out of the workflow YAML.
+4. **(Optional) Store the sender ID** — add another secret named `KUDOSITY_SENDER` for the number/sender ID you send from, and reference it as `${{ secrets.KUDOSITY_SENDER }}` in the workflow `from:` input. Keeps sender IDs out of the workflow YAML and lets you rotate them centrally.
+5. **(Optional) Store the on-call number** — same pattern: add `ONCALL_PHONE` (or whatever name suits you) and reference it as `${{ secrets.ONCALL_PHONE }}` in the `to:` input.
 
 ## Examples
 
@@ -61,7 +66,7 @@ jobs:
         with:
           api-key: ${{ secrets.KUDOSITY_API_KEY }}
           to: ${{ secrets.ONCALL_PHONE }}
-          from: '61481074185'
+          from: ${{ secrets.KUDOSITY_SENDER }}
           message: "Deploy ${{ github.sha }} of ${{ github.repository }} shipped to prod."
 ```
 
@@ -76,7 +81,7 @@ See [`examples/notify-on-deploy.yml`](examples/notify-on-deploy.yml) for a copy-
   with:
     api-key: ${{ secrets.KUDOSITY_API_KEY }}
     to: ${{ secrets.ONCALL_PHONE }}
-    from: '61481074185'
+    from: ${{ secrets.KUDOSITY_SENDER }}
     message: "ALERT: ${{ github.workflow }} failed in ${{ github.repository }} (run ${{ github.run_id }})"
     message-ref: "alert-${{ github.run_id }}"
 ```
@@ -92,7 +97,7 @@ See [`examples/alert-on-failure.yml`](examples/alert-on-failure.yml) for the ful
   with:
     api-key: ${{ secrets.KUDOSITY_API_KEY }}
     to: ${{ secrets.ONCALL_PHONE }}
-    from: '61481074185'
+    from: ${{ secrets.KUDOSITY_SENDER }}
     message: 'Hello from CI'
 
 - name: Log the message id
@@ -116,7 +121,7 @@ If you need richer messaging logic from an IDE, see the related plugins below.
 ## Security
 
 - Always store the API key as a **repository (or organization / environment) secret**. Never inline it in workflow YAML.
-- The Action body never echoes the API key. Step logs include the response body on non-2xx HTTP responses — review that the Kudosity API does not echo your key back (it does not, at time of writing).
+- The Action body never echoes the API key, and explicitly registers it with `::add-mask::` so the runner's log scrubber will redact it from any output (including response bodies logged on non-2xx HTTP errors).
 - The Action runs entirely on the runner — no third-party servers are involved beyond the Kudosity API.
 
 ## Troubleshooting
@@ -132,6 +137,10 @@ Sender must be a number assigned to your account, or an approved alphanumeric se
 ### Self-test workflow is skipped
 
 The bundled `.github/workflows/test.yml` requires three repo secrets to be set: `KUDOSITY_SANDBOX_API_KEY`, `KUDOSITY_SANDBOX_RECIPIENT`, `KUDOSITY_SANDBOX_SENDER`. Without them the workflow logs a warning and skips the live send.
+
+### No automatic retry
+
+The Action does not retry on transient failures (5xx, network errors) — a single failed call fails the step. If your use case needs retries, wrap the step with [`nick-fields/retry@v3`](https://github.com/nick-fields/retry) or similar. The connect timeout is 10s and the overall request timeout is 30s.
 
 ## Versioning
 

@@ -45,7 +45,10 @@ jobs:
 
       - name: Report
         if: steps.gate.outputs.ready == 'true'
+        env:
+          MSG_ID: ${{ steps.send.outputs.message-id }}
+          MSG_STATUS: ${{ steps.send.outputs.status }}
         run: |
           echo "Self-test passed."
-          echo "message-id: ${{ steps.send.outputs.message-id }}"
-          echo "status:     ${{ steps.send.outputs.status }}"
+          echo "message-id: $MSG_ID"
+          echo "status:     $MSG_STATUS"

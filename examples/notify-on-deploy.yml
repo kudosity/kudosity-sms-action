@@ -21,5 +21,5 @@ jobs:
         with:
           api-key: ${{ secrets.KUDOSITY_API_KEY }}
           to: ${{ secrets.ONCALL_PHONE }}
-          from: '61481074185'
+          from: ${{ secrets.KUDOSITY_SENDER }}
           message: "Deploy ${{ github.sha }} of ${{ github.repository }} shipped to prod."

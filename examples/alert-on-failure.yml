@@ -24,6 +24,6 @@ jobs:
         with:
           api-key: ${{ secrets.KUDOSITY_API_KEY }}
           to: ${{ secrets.ONCALL_PHONE }}
-          from: '61481074185'
+          from: ${{ secrets.KUDOSITY_SENDER }}
           message: "ALERT: ${{ github.workflow }} failed in ${{ github.repository }} (run ${{ github.run_id }}). See ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           message-ref: "alert-${{ github.run_id }}"
